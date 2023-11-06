@@ -1,120 +1,24 @@
 import { Credentials, OAuth2Client } from "google-auth-library";
 
 import http from "http";
-import url from "url";
+import { URL } from "url";
 import open from "open";
 import enableDestroy from "server-destroy";
 import EmailWranglerPlugin from "main";
+import { AddressInfo } from "net";
 
-function makeRedirectUri(host: string, port?: number): string {
-	if (port) {
-		return `${host}:${port}`;
-	}
-	return host;
+const time_units = {
+	milisceond: 1,
+	second: 1_000,
+	minute: 60_000,
+	hour: 3_600_000,
+};
+
+function isAddressInfo(addr: string | AddressInfo | null): addr is AddressInfo {
+	return (addr as AddressInfo).port !== undefined;
 }
 
-function getOAuthCode(
-	authorize_url: string,
-	redirect_host: string,
-	redirect_port: number,
-): Promise<string> {
-	const redirect_uri = makeRedirectUri(redirect_host, redirect_port);
-
-	return new Promise((resolve, reject) => {
-		let shutdownTimer: NodeJS.Timeout;
-
-		const server = http.createServer(async (request, response) => {
-			try {
-				clearTimeout(shutdownTimer);
-
-				if (!request.url) {
-					throw new Error("Request did not contain 'url'");
-				}
-
-				// acquire the code from the querystring
-				const params = new url.URL(request.url, redirect_uri).searchParams;
-				const code = params.get("code");
-
-				if (!code) {
-					throw new Error("Request did not contain 'code' parameter");
-				}
-
-				response.end("Authentication successful! Please return to Obsidian.");
-				resolve(code);
-			} catch (e) {
-				response.end(e);
-				reject(e);
-			} finally {
-				server.destroy();
-			}
-		});
-
-		enableDestroy(server);
-
-		shutdownTimer = setTimeout(() => {
-			console.log("OAuth timed out.");
-			server.destroy();
-		}, 30000);
-
-		server.listen(redirect_port, () => {
-			// open the browser to the authorize url to start the workflow
-			try {
-				open(authorize_url, { wait: false }).then((child) => child.unref());
-			} catch (e) {
-				clearTimeout(shutdownTimer);
-				server.destroy();
-				reject(e);
-			}
-		});
-	});
-}
-
-export async function getNewAuthClient(plugin: EmailWranglerPlugin): Promise<OAuth2Client> {
-	const redirect_uri = makeRedirectUri(
-		plugin.settings.redirect_host,
-		plugin.settings.redirect_port,
-	);
-
-	const oAuth2Client = new OAuth2Client({
-		clientId: plugin.settings.client_id,
-		clientSecret: plugin.settings.client_secret,
-		redirectUri: redirect_uri,
-	});
-
-	const authorizeUrl = oAuth2Client.generateAuthUrl({
-		access_type: "offline",
-		scope: plugin.settings.scope,
-	});
-
-	const auth_code = await getOAuthCode(
-		authorizeUrl,
-		plugin.settings.redirect_host,
-		plugin.settings.redirect_port,
-	);
-
-	const { tokens } = await oAuth2Client.getToken(auth_code);
-	oAuth2Client.setCredentials(tokens);
-
-	plugin.settings.refresh_token = tokens.refresh_token;
-	plugin.settings.access_token = tokens.access_token;
-	plugin.settings.expiry_date = tokens.expiry_date;
-	await plugin.saveSettings();
-
-	return oAuth2Client;
-}
-
-async function refreshAuthClient(plugin: EmailWranglerPlugin): Promise<OAuth2Client> {
-	const redirect_uri = makeRedirectUri(
-		plugin.settings.redirect_host,
-		plugin.settings.redirect_port,
-	);
-
-	const oAuth2Client = new OAuth2Client({
-		clientId: plugin.settings.client_id,
-		clientSecret: plugin.settings.client_secret,
-		redirectUri: redirect_uri,
-	});
-
+function getCredentialsFromSettings(plugin: EmailWranglerPlugin): Credentials {
 	const credentials: Credentials = {
 		refresh_token: plugin.settings.refresh_token,
 		scope: plugin.settings.scope?.join(" "),
@@ -126,29 +30,184 @@ async function refreshAuthClient(plugin: EmailWranglerPlugin): Promise<OAuth2Cli
 		credentials.expiry_date = plugin.settings.expiry_date;
 	}
 
+	return credentials;
+}
+
+async function saveCredentialsToSettings(
+	plugin: EmailWranglerPlugin,
+	credentials: Credentials,
+) {
+	plugin.settings.scope = credentials.scope?.split(" ");
+	plugin.settings.refresh_token = credentials.refresh_token;
+	plugin.settings.access_token = credentials.access_token;
+	plugin.settings.expiry_date = credentials.expiry_date;
+	await plugin.saveSettings();
+}
+
+function makeOneShotServer(requestCallback: (request: http.IncomingMessage) => any) {
+	const server = http.createServer(async (request, response) => {
+		try {
+			const resp = requestCallback(request);
+			response.end(resp);
+		} catch (e) {
+			response.end("Encountered unexpected error");
+			console.error(e);
+		} finally {
+			server.destroy();
+		}
+	});
+
+	enableDestroy(server);
+	return server;
+}
+
+function getOAuthClient(
+	client_id: string,
+	client_secret: string,
+	scopes: string[] | undefined,
+	login_hint?: string,
+): Promise<OAuth2Client> {
+	return new Promise((resolve, reject) => {
+		let client: OAuth2Client;
+		let shutdownTimer: NodeJS.Timeout;
+
+		const redirect_uri = new URL("http://localhost");
+
+		const server = makeOneShotServer((request) => {
+			clearTimeout(shutdownTimer);
+
+			if (!request.url) {
+				const err = new Error("No callback URL provided");
+				reject(err);
+				return err.message;
+			}
+
+			const url = new URL(request.url, redirect_uri);
+
+			const searchParams = url.searchParams;
+			if (searchParams.has("error")) {
+				const err = new Error(searchParams.get("error")!);
+				reject(err);
+				return err.message;
+			}
+
+			if (!searchParams.has("code")) {
+				const err = new Error("No authentication code provided");
+				reject(err);
+				return err.message;
+			}
+
+			const code = searchParams.get("code")!;
+			client
+				.getToken({
+					code: code,
+					redirect_uri: redirect_uri.toString(),
+				})
+				.then((token) => {
+					client.setCredentials(token.tokens);
+					resolve(client);
+				});
+
+			return "Authentication successful! Please return to Obsidian.";
+		});
+
+		shutdownTimer = setTimeout(() => {
+			try {
+				server.destroy();
+			} catch (e) {
+				console.error(e);
+			} finally {
+				reject("OAuth timed out.");
+			}
+		}, 30 * time_units.second);
+
+		// Any open port will do
+		server.listen(0, () => {
+			try {
+				const address = server.address();
+				if (isAddressInfo(address)) {
+					// Update the uri with the server's port
+					redirect_uri.port = String(address.port);
+				}
+
+				client = new OAuth2Client({
+					clientId: client_id,
+					clientSecret: client_secret,
+					redirectUri: redirect_uri.toString(),
+				});
+
+				const authorize_url = client.generateAuthUrl({
+					redirect_uri: redirect_uri.toString(),
+					access_type: "offline",
+					scope: scopes?.join(" "),
+					login_hint: login_hint,
+				});
+
+				// open the browser to the authorize url to start the workflow
+				open(authorize_url, { wait: false }).then((child) => child.unref());
+			} catch (e) {
+				clearTimeout(shutdownTimer);
+				server.destroy();
+				reject(e);
+			}
+		});
+	});
+}
+
+async function getNewAuthClient(plugin: EmailWranglerPlugin): Promise<OAuth2Client> {
+	const oAuth2Client = await getOAuthClient(
+		plugin.settings.client_id,
+		plugin.settings.client_secret,
+		plugin.settings.scope,
+		plugin.settings.associated_email,
+	);
+
+	await saveCredentialsToSettings(plugin, oAuth2Client.credentials);
+	return oAuth2Client;
+}
+
+async function refreshAuthClient(plugin: EmailWranglerPlugin): Promise<OAuth2Client> {
+	const oAuth2Client = new OAuth2Client({
+		clientId: plugin.settings.client_id,
+		clientSecret: plugin.settings.client_secret,
+	});
+
+	const credentials = getCredentialsFromSettings(plugin);
 	oAuth2Client.setCredentials(credentials);
 
 	const { token, res } = await oAuth2Client.getAccessToken();
-	if (res) {
+
+	if (!token) {
+		throw new Error("Failed to retrieve access token");
+	}
+
+	if (token == plugin.settings.access_token) {
+		console.info("Access token reused");
+	} else if (res) {
 		const expiry_date: number | undefined = res.data?.expiry_date;
+
+		if (!expiry_date) {
+			throw new Error("Failed to retrieve access token expiry date");
+		}
 
 		credentials.access_token = token;
 		credentials.expiry_date = expiry_date;
-
 		oAuth2Client.setCredentials(credentials);
-
-		plugin.settings.access_token = token;
-		plugin.settings.expiry_date = expiry_date;
-		await plugin.saveSettings();
+		await saveCredentialsToSettings(plugin, credentials);
+		console.info("Access token refreshed");
 	}
 
 	return oAuth2Client;
 }
 
+export function invalidateAuthenticationClient(plugin: EmailWranglerPlugin) {
+	plugin.settings.refresh_token = null;
+}
+
 export async function getAuthenticationClient(
 	plugin: EmailWranglerPlugin,
 ): Promise<OAuth2Client> {
-	if(!plugin.settings.refresh_token){
+	if (!plugin.settings.refresh_token) {
 		return getNewAuthClient(plugin);
 	} else {
 		return refreshAuthClient(plugin);

@@ -4,6 +4,8 @@ import { EmailWranglerSettingTab } from "SettingTab";
 import { EmailWranglerSettings, DEFAULT_SETTINGS } from "Settings";
 import { getAuthenticationClient } from "./oauth/oauth";
 
+import { google } from "googleapis";
+
 export default class EmailWranglerPlugin extends Plugin {
 	/**
 	 * @public
@@ -13,22 +15,51 @@ export default class EmailWranglerPlugin extends Plugin {
 	async onload() {
 		await this.loadSettings();
 		const oAuth2Client = await getAuthenticationClient(this);
+		const gmail = google.gmail({
+			version: "v1",
+			auth: oAuth2Client,
+		});
 		// This creates an icon in the left ribbon.
 		const ribbonIconEl = this.addRibbonIcon(
 			"dice",
 			"My hover text",
 			(_evt: MouseEvent) => {
 				// Called when the user clicks the icon.
-				new Notice("OAuth Time!");
-				// console.log(oAuth2Client);
+				new Notice("EMail Time!");
+
+				gmail.users.threads.list({
+					userId: "me",
+					maxResults: 1,
+				}).then((res) => {
+					const threads = res.data.threads;
+					if (!threads || threads.length === 0) {
+						console.log("No threads found.");
+					} else {
+						gmail.users.threads.get({
+							userId: "me",
+							id: threads[0].id!,
+						}).then((tr) => {
+							console.log(tr);
+							const snippet = tr.data.snippet;
+							const headers = tr.data.messages?.at(0)?.payload?.headers;
+							if (headers) {
+								const sender = headers.find(item => item?.name === "From")?.value;
+								const recipient = headers.find(item => item?.name === "To")?.value;
+								const subject = headers.find(item => item?.name === "Subject")?.value;
+								const date = headers.find(item => item?.name === "Date")?.value;
+								if (subject) new Notice(subject);
+							}
+						});
+					}
+				});
 			},
 		);
 		// Perform additional things with the ribbon
 		ribbonIconEl.addClass("my-plugin-ribbon-class");
 
 		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText("Status Bar Text");
+		// const statusBarItemEl = this.addStatusBarItem();
+		// statusBarItemEl.setText("Status Bar Text");
 
 		// This adds a simple command that can be triggered anywhere
 		this.addCommand({
@@ -73,17 +104,17 @@ export default class EmailWranglerPlugin extends Plugin {
 
 		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
 		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, "click", (evt: MouseEvent) => {
-			console.log("click", evt);
-		});
+		// this.registerDomEvent(document, "click", (evt: MouseEvent) => {
+		// 	console.log("click", evt);
+		// });
 
 		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(
-			window.setInterval(() => console.log("setInterval"), 5 * 60 * 1000),
-		);
+		// this.registerInterval(
+		// 	window.setInterval(() => console.log("setInterval"), 5 * 60 * 1000),
+		// );
 	}
 
-	onunload() {}
+	onunload() { }
 
 	async loadSettings() {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());

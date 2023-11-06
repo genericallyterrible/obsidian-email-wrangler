@@ -1,6 +1,6 @@
 import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import EmailWranglerPlugin from "main";
-import { getNewAuthClient } from "oauth/oauth";
+import { getAuthenticationClient, invalidateAuthenticationClient } from "oauth/oauth";
 
 export class EmailWranglerSettingTab extends PluginSettingTab {
 	plugin: EmailWranglerPlugin;
@@ -50,11 +50,8 @@ export class EmailWranglerSettingTab extends PluginSettingTab {
 					.setTooltip("Regenerate")
 					.onClick(() => {
 						new Notice("OAuth Time!");
-						getNewAuthClient(this.plugin).then((oauth) => {
-							oauth.getAccessToken().then((response) => {
-								console.log(response);
-							});
-						});
+						invalidateAuthenticationClient(this.plugin);
+						getAuthenticationClient(this.plugin);
 					});
 			})
 			.addText((text) => {
