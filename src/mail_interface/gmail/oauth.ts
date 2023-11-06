@@ -109,16 +109,6 @@ function getOAuthClient(
 			return "Authentication successful! Please return to Obsidian.";
 		});
 
-		shutdownTimer = setTimeout(() => {
-			try {
-				server.destroy();
-			} catch (e) {
-				console.error(e);
-			} finally {
-				reject("OAuth timed out.");
-			}
-		}, 30 * time_units.second);
-
 		// Any open port will do
 		server.listen(0, () => {
 			try {
@@ -135,14 +125,25 @@ function getOAuthClient(
 				});
 
 				const authorize_url = client.generateAuthUrl({
-					redirect_uri: redirect_uri.toString(),
 					access_type: "offline",
 					scope: scopes?.join(" "),
 					login_hint: login_hint,
 				});
 
-				// open the browser to the authorize url to start the workflow
+				// Open the browser to the authorize url to start the OAuth workflow
 				open(authorize_url, { wait: false }).then((child) => child.unref());
+
+				// Spawn a timeout to shut down the server if no response
+				// is received in some ammount of time
+				shutdownTimer = setTimeout(() => {
+					try {
+						server.destroy();
+					} catch (e) {
+						console.error(e);
+					} finally {
+						reject(new Error("OAuth timed out."));
+					}
+				}, 30 * time_units.second);
 			} catch (e) {
 				clearTimeout(shutdownTimer);
 				server.destroy();
