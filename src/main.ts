@@ -27,31 +27,44 @@ export default class EmailWranglerPlugin extends Plugin {
 				// Called when the user clicks the icon.
 				new Notice("EMail Time!");
 
-				gmail.users.threads.list({
-					userId: "me",
-					maxResults: 1,
-				}).then((res) => {
-					const threads = res.data.threads;
-					if (!threads || threads.length === 0) {
-						console.log("No threads found.");
-					} else {
-						gmail.users.threads.get({
-							userId: "me",
-							id: threads[0].id!,
-						}).then((tr) => {
-							console.log(tr);
-							const snippet = tr.data.snippet;
-							const headers = tr.data.messages?.at(0)?.payload?.headers;
-							if (headers) {
-								const sender = headers.find(item => item?.name === "From")?.value;
-								const recipient = headers.find(item => item?.name === "To")?.value;
-								const subject = headers.find(item => item?.name === "Subject")?.value;
-								const date = headers.find(item => item?.name === "Date")?.value;
-								if (subject) new Notice(subject);
-							}
-						});
-					}
-				});
+				gmail.users.threads
+					.list({
+						userId: "me",
+						maxResults: 1,
+					})
+					.then((res) => {
+						const threads = res.data.threads;
+						if (!threads || threads.length === 0) {
+							console.log("No threads found.");
+						} else {
+							gmail.users.threads
+								.get({
+									userId: "me",
+									id: threads[0].id!,
+								})
+								.then((tr) => {
+									console.log(tr);
+									const snippet = tr.data.snippet;
+									const headers =
+										tr.data.messages?.at(0)?.payload?.headers;
+									if (headers) {
+										const sender = headers.find(
+											(item) => item?.name === "From",
+										)?.value;
+										const recipient = headers.find(
+											(item) => item?.name === "To",
+										)?.value;
+										const subject = headers.find(
+											(item) => item?.name === "Subject",
+										)?.value;
+										const date = headers.find(
+											(item) => item?.name === "Date",
+										)?.value;
+										if (subject) new Notice(subject);
+									}
+								});
+						}
+					});
 			},
 		);
 		// Perform additional things with the ribbon
@@ -114,7 +127,7 @@ export default class EmailWranglerPlugin extends Plugin {
 		// );
 	}
 
-	onunload() { }
+	onunload() {}
 
 	async loadSettings() {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
