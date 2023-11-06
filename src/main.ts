@@ -2,7 +2,7 @@ import { App, Editor, MarkdownView, Modal, Notice, Plugin } from "obsidian";
 
 import { EmailWranglerSettingTab } from "SettingTab";
 import { EmailWranglerSettings, DEFAULT_SETTINGS } from "Settings";
-import { getAuthenticationClient } from "./oauth/oauth";
+import { getAuthenticationClient } from "mail_interface/gmail/oauth";
 
 import { google } from "googleapis";
 
