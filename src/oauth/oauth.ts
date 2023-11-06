@@ -44,10 +44,12 @@ async function saveCredentialsToSettings(
 	await plugin.saveSettings();
 }
 
-function makeOneShotServer(requestCallback: (request: http.IncomingMessage) => any) {
+function makeOneShotServer(
+	requestCallback: (request: http.IncomingMessage) => Promise<any>,
+) {
 	const server = http.createServer(async (request, response) => {
 		try {
-			const resp = requestCallback(request);
+			const resp = await requestCallback(request);
 			response.end(resp);
 		} catch (e) {
 			response.end("Encountered unexpected error");
@@ -73,7 +75,7 @@ function getOAuthClient(
 
 		const redirect_uri = new URL("http://localhost");
 
-		const server = makeOneShotServer((request) => {
+		const server = makeOneShotServer(async (request) => {
 			clearTimeout(shutdownTimer);
 
 			if (!request.url) {
@@ -97,17 +99,13 @@ function getOAuthClient(
 				return err.message;
 			}
 
-			const code = searchParams.get("code")!;
-			client
-				.getToken({
-					code: code,
-					redirect_uri: redirect_uri.toString(),
-				})
-				.then((token) => {
-					client.setCredentials(token.tokens);
-					resolve(client);
-				});
+			const { tokens } = await client.getToken({
+				code: searchParams.get("code")!,
+				redirect_uri: redirect_uri.toString(),
+			});
+			client.setCredentials(tokens);
 
+			resolve(client);
 			return "Authentication successful! Please return to Obsidian.";
 		});
 
