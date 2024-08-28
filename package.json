@@ -7,26 +7,35 @@
 		"dev": "node esbuild.config.mjs",
 		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
 		"version": "node version-bump.mjs && git add manifest.json versions.json",
-		"format": "prettier --config .prettierrc \"src/**/*.ts\" --write"
+		"lint": "eslint src",
+		"lint:fix": "npm run lint -- --fix",
+		"prettier": "npx prettier src --check",
+		"prettier:fix": "npm run prettier -- --write",
+		"format": "npm run prettier:fix && npm run lint:fix"
 	},
 	"keywords": [],
 	"author": "",
 	"license": "MIT",
 	"devDependencies": {
+		"@ianvs/prettier-plugin-sort-imports": "^4.1.1",
 		"@types/node": "^16.11.6",
 		"@types/server-destroy": "^1.0.2",
 		"@typescript-eslint/eslint-plugin": "5.29.0",
 		"@typescript-eslint/parser": "5.29.0",
 		"builtin-modules": "3.3.0",
 		"esbuild": "0.17.3",
+		"eslint": "^8.53.0",
 		"obsidian": "latest",
 		"prettier": "^3.0.3",
 		"tslib": "2.4.0",
 		"typescript": "4.7.4"
 	},
 	"dependencies": {
+		"@types/he": "^1.2.3",
 		"google-auth-library": "^9.2.0",
 		"googleapis": "^128.0.0",
+		"he": "^1.2.0",
+		"lru-cache": "^10.0.2",
 		"open": "^9.1.0",
 		"server-destroy": "^1.0.1"
 	}

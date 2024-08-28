@@ -2,5 +2,8 @@
     "semi": true,
     "trailingComma": "all",
     "singleQuote": false,
-    "printWidth": 88
+    "printWidth": 88,
+    "plugins": [
+        "@ianvs/prettier-plugin-sort-imports"
+    ]
 }

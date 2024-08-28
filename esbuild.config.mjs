@@ -12,7 +12,7 @@ If you want to view the source, please visit the github repository of this plugi
 */
 `;
 
-let envPlugin = {
+const fix_import_meta_url = {
 	name: 'import.meta.url',
 	setup(build) {
 		build.onLoad({ filter: /\.(js|jsx|ts|tsx)$/, namespace: 'file' }, async (args) => {
@@ -60,7 +60,7 @@ const context = await esbuild.context({
 	treeShaking: true,
 	outfile: "main.js",
 	platform: "node",
-	plugins: [envPlugin],
+	plugins: [fix_import_meta_url],
 });
 
 if (prod) {

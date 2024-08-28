@@ -1,6 +1,9 @@
-import { App, Notice, PluginSettingTab, Setting } from "obsidian";
+import {
+	getAuthenticationClient,
+	invalidateAuthenticationClient,
+} from "mail_interface/gmail/oauth";
 import EmailWranglerPlugin from "main";
-import { getAuthenticationClient, invalidateAuthenticationClient } from "mail_interface/gmail/oauth";
+import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 
 export class EmailWranglerSettingTab extends PluginSettingTab {
 	plugin: EmailWranglerPlugin;

@@ -1,18 +1,11 @@
-import { Credentials, OAuth2Client } from "google-auth-library";
-
 import http from "http";
+import { AddressInfo } from "net";
 import { URL } from "url";
+import { Credentials, OAuth2Client } from "google-auth-library";
+import EmailWranglerPlugin from "main";
 import open from "open";
 import enableDestroy from "server-destroy";
-import EmailWranglerPlugin from "main";
-import { AddressInfo } from "net";
-
-const time_units = {
-	milisceond: 1,
-	second: 1_000,
-	minute: 60_000,
-	hour: 3_600_000,
-};
+import { time_units } from "utils/units";
 
 function isAddressInfo(addr: string | AddressInfo | null): addr is AddressInfo {
 	return (addr as AddressInfo).port !== undefined;
@@ -25,11 +18,6 @@ function getCredentialsFromSettings(plugin: EmailWranglerPlugin): Credentials {
 		token_type: "Bearer",
 	};
 
-	if (plugin.settings.access_token && plugin.settings.expiry_date) {
-		credentials.access_token = plugin.settings.access_token;
-		credentials.expiry_date = plugin.settings.expiry_date;
-	}
-
 	return credentials;
 }
 
@@ -39,13 +27,11 @@ async function saveCredentialsToSettings(
 ) {
 	plugin.settings.scope = credentials.scope?.split(" ");
 	plugin.settings.refresh_token = credentials.refresh_token;
-	plugin.settings.access_token = credentials.access_token;
-	plugin.settings.expiry_date = credentials.expiry_date;
 	await plugin.saveSettings();
 }
 
 function makeOneShotServer(
-	requestCallback: (request: http.IncomingMessage) => Promise<any>,
+	requestCallback: (request: http.IncomingMessage) => Promise<unknown>,
 ) {
 	const server = http.createServer(async (request, response) => {
 		try {
@@ -87,21 +73,22 @@ function getOAuthClient(
 			const url = new URL(request.url, redirect_uri);
 
 			const searchParams = url.searchParams;
-			if (searchParams.has("error")) {
-				const err = new Error(searchParams.get("error")!);
+			const param_err = searchParams.get("error");
+			if (param_err) {
+				const err = new Error(param_err);
 				reject(err);
 				return err.message;
 			}
 
-			if (!searchParams.has("code")) {
+			const code = searchParams.get("code");
+			if (!code) {
 				const err = new Error("No authentication code provided");
 				reject(err);
 				return err.message;
 			}
 
 			const { tokens } = await client.getToken({
-				code: searchParams.get("code")!,
-				redirect_uri: redirect_uri.toString(),
+				code: code,
 			});
 			client.setCredentials(tokens);
 
@@ -165,40 +152,6 @@ async function getNewAuthClient(plugin: EmailWranglerPlugin): Promise<OAuth2Clie
 	return oAuth2Client;
 }
 
-async function refreshAuthClient(plugin: EmailWranglerPlugin): Promise<OAuth2Client> {
-	const oAuth2Client = new OAuth2Client({
-		clientId: plugin.settings.client_id,
-		clientSecret: plugin.settings.client_secret,
-	});
-
-	const credentials = getCredentialsFromSettings(plugin);
-	oAuth2Client.setCredentials(credentials);
-
-	const { token, res } = await oAuth2Client.getAccessToken();
-
-	if (!token) {
-		throw new Error("Failed to retrieve access token");
-	}
-
-	if (token == plugin.settings.access_token) {
-		console.info("Access token reused");
-	} else if (res) {
-		const expiry_date: number | undefined = res.data?.expiry_date;
-
-		if (!expiry_date) {
-			throw new Error("Failed to retrieve access token expiry date");
-		}
-
-		credentials.access_token = token;
-		credentials.expiry_date = expiry_date;
-		oAuth2Client.setCredentials(credentials);
-		await saveCredentialsToSettings(plugin, credentials);
-		console.info("Access token refreshed");
-	}
-
-	return oAuth2Client;
-}
-
 export function invalidateAuthenticationClient(plugin: EmailWranglerPlugin) {
 	plugin.settings.refresh_token = null;
 }
@@ -209,6 +162,12 @@ export async function getAuthenticationClient(
 	if (!plugin.settings.refresh_token) {
 		return getNewAuthClient(plugin);
 	} else {
-		return refreshAuthClient(plugin);
+		const oAuth2Client = new OAuth2Client({
+			clientId: plugin.settings.client_id,
+			clientSecret: plugin.settings.client_secret,
+		});
+		const credentials = getCredentialsFromSettings(plugin);
+		oAuth2Client.setCredentials(credentials);
+		return oAuth2Client;
 	}
 }
